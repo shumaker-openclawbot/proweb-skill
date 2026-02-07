@@ -47,14 +47,14 @@ def search_duckduckgo(query: str, count: int = 10) -> List[Dict]:
         })
         url = f"https://api.duckduckgo.com/?{params}"
         html = run_curl(url, timeout=8)
-        
+
         if not html:
             return []
-        
+
         data = json.loads(html)
         results = []
         rank = 0
-        
+
         # Instant answer (high priority)
         if data.get('AbstractText'):
             rank += 1
@@ -67,16 +67,16 @@ def search_duckduckgo(query: str, count: int = 10) -> List[Dict]:
                 'relevance': 0.95,
                 'score': 95
             })
-        
+
         # Related topics
         for topic in data.get('RelatedTopics', []):
             if len(results) >= count:
                 break
-            
+
             if isinstance(topic, dict):
                 text = topic.get('Text', '')
                 url_topic = topic.get('FirstURL', '')
-                
+
                 if text and url_topic and len(text) > 5:
                     rank += 1
                     results.append({
@@ -89,7 +89,7 @@ def search_duckduckgo(query: str, count: int = 10) -> List[Dict]:
                         'relevance': 0.75,
                         'score': 75
                     })
-        
+
         return results[:count]
     except Exception as e:
         return []
@@ -98,35 +98,36 @@ def search_bing(query: str, count: int = 10) -> List[Dict]:
     """Bing web search scraping (comprehensive, deep results)."""
     try:
         from bs4 import BeautifulSoup
-        
+
         search_query = urllib.parse.quote(query)
-        url = f"https://www.bing.com/search?q={search_query}&count=50"
-        
+        # Force English US results by setting cc=US (country) and mkt=en-US (market)
+        url = f"https://www.bing.com/search?q={search_query}&count=50&cc=US&mkt=en-US"
+
         html = run_curl(url, timeout=12)
         if not html:
             return []
-        
+
         soup = BeautifulSoup(html, 'html.parser')
         results = []
         rank = 0
-        
+
         for item in soup.find_all('li', class_='b_algo'):
             if len(results) >= count:
                 break
-            
+
             try:
                 title_elem = item.find('h2')
                 if not title_elem:
                     continue
-                
+
                 title = title_elem.get_text(strip=True)
-                
+
                 link_elem = title_elem.find('a')
                 url_result = link_elem['href'] if link_elem else ''
-                
+
                 desc_elem = item.find('p')
                 snippet = desc_elem.get_text(strip=True) if desc_elem else ''
-                
+
                 if title and url_result and len(snippet) > 20:
                     rank += 1
                     results.append({
@@ -140,7 +141,7 @@ def search_bing(query: str, count: int = 10) -> List[Dict]:
                     })
             except:
                 continue
-        
+
         return results
     except Exception as e:
         return []
@@ -149,40 +150,40 @@ def search_google(query: str, count: int = 10) -> List[Dict]:
     """Google search scraping (may be rate-limited, but comprehensive)."""
     try:
         from bs4 import BeautifulSoup
-        
+
         search_query = urllib.parse.quote(query)
         url = f"https://www.google.com/search?q={search_query}&num={count}"
-        
+
         html = run_curl(url, timeout=12)
         if not html or len(html) < 1000:
             return []  # Usually means rate-limited
-        
+
         soup = BeautifulSoup(html, 'html.parser')
         results = []
         rank = 0
-        
+
         for item in soup.find_all('div', class_='g'):
             if len(results) >= count:
                 break
-            
+
             try:
                 title_elem = item.find('h3')
                 if not title_elem:
                     continue
-                
+
                 title = title_elem.get_text(strip=True)
-                
+
                 link_elem = item.find('a')
                 url_result = link_elem['href'] if link_elem else ''
-                
+
                 desc_elem = item.find('span', class_='VwiC3b')
                 snippet = desc_elem.get_text(strip=True) if desc_elem else ''
-                
+
                 if title and url_result and len(snippet) > 10:
                     # Clean Google URLs
                     if url_result.startswith('/url?q='):
                         url_result = urllib.parse.unquote(url_result.split('q=')[1].split('&')[0])
-                    
+
                     rank += 1
                     results.append({
                         'rank': rank,
@@ -195,7 +196,7 @@ def search_google(query: str, count: int = 10) -> List[Dict]:
                     })
             except:
                 continue
-        
+
         return results
     except Exception as e:
         return []
@@ -211,19 +212,19 @@ def search_wikipedia(query: str) -> Optional[Dict]:
             'srlimit': '1'
         })
         url = f"https://en.wikipedia.org/w/api.php?{params}"
-        
+
         html = run_curl(url, timeout=8)
         if not html:
             return None
-        
+
         data = json.loads(html)
         results = data.get('query', {}).get('search', [])
-        
+
         if results:
             r = results[0]
             title = r.get('title', '')
             snippet = re.sub('<[^<]+?>', '', r.get('snippet', ''))  # Remove HTML tags
-            
+
             return {
                 'rank': 0,
                 'title': title,
@@ -235,7 +236,7 @@ def search_wikipedia(query: str) -> Optional[Dict]:
             }
     except:
         pass
-    
+
     return None
 
 def search_arxiv(query: str, count: int = 5) -> List[Dict]:
@@ -244,26 +245,26 @@ def search_arxiv(query: str, count: int = 5) -> List[Dict]:
         from urllib.parse import quote
         search_query = quote(query)
         url = f"https://arxiv.org/cgi-bin/opensearch?query={search_query}&start=0&max_results={count}"
-        
+
         html = run_curl(url, timeout=10)
         if not html:
             return []
-        
+
         from xml.etree import ElementTree as ET
         root = ET.fromstring(html)
-        
+
         results = []
         rank = 0
-        
+
         for entry in root.findall('.//{http://www.w3.org/2005/Atom}entry'):
             if len(results) >= count:
                 break
-            
+
             try:
                 title = entry.find('{http://www.w3.org/2005/Atom}title').text
                 summary = entry.find('{http://www.w3.org/2005/Atom}summary').text
                 url_elem = entry.find('{http://www.w3.org/2005/Atom}id').text
-                
+
                 rank += 1
                 results.append({
                     'rank': rank,
@@ -276,29 +277,72 @@ def search_arxiv(query: str, count: int = 5) -> List[Dict]:
                 })
             except:
                 continue
-        
+
         return results
     except:
         return []
 
 # ============================================================================
-# INTELLIGENT RESULT RANKING & DEDUPLICATION
+# ENGLISH CONTENT DETECTION & DEDUPLICATION
 # ============================================================================
 
+def is_english_content(text: str) -> bool:
+    """
+    Check if content is primarily in English.
+    Detects non-Latin scripts (Chinese, Arabic, Cyrillic, etc).
+    """
+    if not text:
+        return False
+    
+    # Count non-ASCII, non-Latin characters
+    non_latin = 0
+    total_chars = 0
+    
+    for char in text:
+        code = ord(char)
+        # Skip whitespace and common punctuation
+        if char.isspace() or char in '.,!?;:\'"()-':
+            continue
+        
+        total_chars += 1
+        
+        # Check if character is Latin (ASCII 0-127 + extended Latin)
+        if code > 0x24F:  # End of Latin Extended-B
+            # Check for common non-Latin ranges
+            if (0x4E00 <= code <= 0x9FFF or  # CJK Unified Ideographs (Chinese)
+                0x0600 <= code <= 0x06FF or  # Arabic
+                0x0400 <= code <= 0x04FF or  # Cyrillic
+                0x0590 <= code <= 0x05FF):   # Hebrew
+                non_latin += 1
+    
+    # If we have enough characters, check ratio
+    if total_chars < 10:
+        return True  # Too few characters, assume English
+    
+    non_latin_ratio = non_latin / total_chars
+    # If more than 30% non-Latin characters, it's not English
+    return non_latin_ratio < 0.3
+
 def deduplicate_results(all_results: List[Dict]) -> List[Dict]:
-    """Deduplicate results by URL + title similarity."""
+    """Deduplicate results by URL + title similarity and filter non-English content."""
     seen_urls = set()
     seen_titles = {}
     deduplicated = []
-    
+
     for result in all_results:
         url = result.get('url', '')
         title = result.get('title', '')
-        
+        snippet = result.get('snippet', '')
+
         # Skip if URL already seen
         if url in seen_urls:
             continue
-        
+
+        # Filter non-English content
+        content_to_check = f"{title} {snippet}"
+        if not is_english_content(content_to_check):
+            continue
+
         # Skip if very similar title already seen
         if title:
             title_lower = title.lower()
@@ -308,15 +352,15 @@ def deduplicate_results(all_results: List[Dict]) -> List[Dict]:
                     if title_lower[:30] == seen_title[:30]:
                         is_duplicate = True
                         break
-            
+
             if is_duplicate:
                 continue
-            
+
             seen_titles[title_lower] = True
-        
+
         seen_urls.add(url)
         deduplicated.append(result)
-    
+
     return deduplicated
 
 def rank_results(results: List[Dict]) -> List[Dict]:
@@ -324,11 +368,11 @@ def rank_results(results: List[Dict]) -> List[Dict]:
     for result in results:
         # Base score from source
         base_score = result.get('score', 50)
-        
+
         # Boost for having good snippet
         if len(result.get('snippet', '')) > 100:
             base_score += 5
-        
+
         # Boost for URL authority (wikipedia, arxiv, etc)
         source = result.get('source', '')
         if source == 'wikipedia':
@@ -337,9 +381,9 @@ def rank_results(results: List[Dict]) -> List[Dict]:
             base_score += 15
         elif source == 'arxiv':
             base_score += 10
-        
+
         result['score'] = min(base_score, 100)
-    
+
     # Sort by score (descending)
     return sorted(results, key=lambda x: x['score'], reverse=True)
 
@@ -354,23 +398,23 @@ def smart_scrape(url: str, extract_mode: str = "smart") -> Dict:
     """
     try:
         from bs4 import BeautifulSoup
-        
+
         html = run_curl(url, timeout=15)
         if not html:
             return {'error': 'Failed to fetch'}
-        
+
         soup = BeautifulSoup(html, 'html.parser')
-        
+
         # Remove noise
         for script in soup(['script', 'style', 'nav', 'footer']):
             script.decompose()
-        
+
         result = {
             'url': url,
             'title': soup.title.string if soup.title else 'N/A',
             'scraped_at': int(time.time())
         }
-        
+
         # Extract main content
         if extract_mode in ['smart', 'text', 'all']:
             # Try to find main content area
@@ -379,50 +423,50 @@ def smart_scrape(url: str, extract_mode: str = "smart") -> Dict:
                 main_content = soup.select_one(selector)
                 if main_content:
                     break
-            
+
             if main_content:
                 text = main_content.get_text(separator=' ', strip=True)
             else:
                 # Fallback: get body text
                 text = soup.get_text(separator=' ', strip=True)
-            
+
             text = re.sub(r'\s+', ' ', text)[:3000]  # Limit to 3000 chars
             result['text'] = text
             result['text_length'] = len(text)
-            
+
             # Extract headings
             headings = []
             for h in soup.find_all(['h1', 'h2', 'h3'])[:5]:
                 h_text = h.get_text(strip=True)
                 if h_text:
                     headings.append(h_text)
-            
+
             if headings:
                 result['headings'] = headings
-        
+
         # Extract metadata
         if extract_mode in ['smart', 'metadata', 'all']:
             metadata = {}
-            
+
             # OG tags
             for tag in soup.find_all('meta'):
                 prop = tag.get('property', '')
                 content = tag.get('content', '')
-                
+
                 if prop.startswith('og:'):
                     meta_key = prop.replace('og:', '')
                     metadata[meta_key] = content
-            
+
             if metadata:
                 result['metadata'] = metadata
-        
+
         # Extract links
         if extract_mode in ['smart', 'links', 'all']:
             links = []
             for link in soup.find_all('a', href=True)[:30]:
                 href = link['href']
                 link_text = link.get_text(strip=True)
-                
+
                 if href and link_text and len(link_text) > 2:
                     # Skip internal navigation links
                     if not any(x in link_text.lower() for x in ['menu', 'nav', 'toggle', 'close']):
@@ -430,30 +474,30 @@ def smart_scrape(url: str, extract_mode: str = "smart") -> Dict:
                             'text': link_text[:80],
                             'href': href[:200]
                         })
-            
+
             if links:
                 result['links'] = links[:20]
                 result['link_count'] = len(links)
-        
+
         # Extract images
         if extract_mode in ['smart', 'images', 'all']:
             images = []
             for img in soup.find_all('img')[:10]:
                 src = img.get('src', '')
                 alt = img.get('alt', '')
-                
+
                 if src and (alt or len(src) > 10):
                     images.append({
                         'src': src[:200],
                         'alt': alt[:100] if alt else ''
                     })
-            
+
             if images:
                 result['images'] = images
                 result['image_count'] = len(images)
-        
+
         return result
-    
+
     except Exception as e:
         return {'error': str(e), 'url': url}
 
@@ -467,7 +511,7 @@ def multi_source_search(query: str, sources: List[str], count: int = 10, deep: b
     Combines results from multiple sources with intelligent ranking.
     """
     all_results = []
-    
+
     source_functions = {
         'ddg': lambda q: search_duckduckgo(q, count),
         'bing': lambda q: search_bing(q, count),
@@ -475,16 +519,16 @@ def multi_source_search(query: str, sources: List[str], count: int = 10, deep: b
         'wikipedia': lambda q: ([search_wikipedia(q)] if search_wikipedia(q) else []),
         'arxiv': lambda q: search_arxiv(q, count)
     }
-    
+
     # Parallel search from multiple sources
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = {}
-        
+
         for source in sources:
             if source in source_functions:
                 future = executor.submit(source_functions[source], query)
                 futures[future] = source
-        
+
         for future in as_completed(futures):
             try:
                 results = future.result(timeout=15)
@@ -492,13 +536,13 @@ def multi_source_search(query: str, sources: List[str], count: int = 10, deep: b
                     all_results.extend(results)
             except:
                 pass
-    
+
     # Deduplicate
     deduplicated = deduplicate_results(all_results)
-    
+
     # Rank by relevance
     ranked = rank_results(deduplicated)
-    
+
     # Return top N
     return {
         'query': query,
@@ -515,7 +559,7 @@ def multi_source_search(query: str, sources: List[str], count: int = 10, deep: b
 
 def main():
     parser = argparse.ArgumentParser(description='proweb: Advanced multi-source search')
-    
+
     parser.add_argument('query', nargs='?', default=None, help='Search query')
     parser.add_argument('--count', type=int, default=10, help='Number of results (default: 10)')
     parser.add_argument('--sources', default='ddg,bing', help='Sources: ddg,bing,google,wikipedia,arxiv (default: ddg,bing)')
@@ -523,30 +567,30 @@ def main():
     parser.add_argument('--scrape-all', action='store_true', help='Scrape all results')
     parser.add_argument('--scrape-url', default=None, help='Scrape specific URL')
     parser.add_argument('--extract', choices=['smart', 'text', 'links', 'images', 'metadata', 'all'], default='smart', help='Extraction mode')
-    
+
     args = parser.parse_args()
-    
+
     # Scrape specific URL
     if args.scrape_url:
         result = smart_scrape(args.scrape_url, extract_mode=args.extract)
         print(json.dumps(result, indent=2))
         return
-    
+
     if not args.query:
         parser.print_help()
         return
-    
+
     # Determine sources
     sources = args.sources.split(',')
-    
+
     if args.deep:
         sources = ['ddg', 'bing', 'google', 'wikipedia', 'arxiv']
-    
+
     # Search
     print(f"🔍 Searching {len(sources)} sources for '{args.query}'...", file=sys.stderr)
-    
+
     results = multi_source_search(args.query, sources, count=args.count, deep=args.deep)
-    
+
     # Optionally scrape all results
     if args.scrape_all:
         print(f"📄 Scraping {len(results['results'])} results...", file=sys.stderr)
@@ -554,7 +598,7 @@ def main():
             if result.get('url'):
                 scraped = smart_scrape(result['url'], extract_mode=args.extract)
                 result['scraped_content'] = scraped
-    
+
     # Output
     print(json.dumps(results, indent=2))
 
